@@ -1,0 +1,113 @@
+---
+title: "Practical Machine Learning"
+author: "Leo R"
+date: "30 January 2019"
+output:
+  html_document: default
+  word_document: default
+---
+
+
+Initial loadout of libraries
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(knitr)
+library(randomForest)
+```
+
+## Data gathering, cleaning, and exploration
+
+Gather the data from the provided URLs, and transform NAs to R-friendly NAs.
+```{r, cache = T}
+train_URL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_URL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train_orig <- read.csv(url(train_URL),sep = ",", na.strings = c("", "NA","#DIV/0!"))
+test_orig <- read.csv(url(test_URL),sep = ",", na.strings = c("", "NA","#DIV/0!"))
+```
+
+
+Initial look at the data - commented out due to its verbose nature.
+```{r}
+#head(train_orig)
+#head(test_orig)
+
+``` 
+
+
+Looking at the data we can see the first 8 columns are of little use to us (including sample number, dates, etc. which should not help prediction), and the dataset has many variables which are just filled with NAs. We can clean the dataframe to only include the relevant and non-NA variables below:
+
+
+```{r, cache = T}
+train_orig <- train_orig[, colSums(is.na(train_orig)) == 0] 
+test_orig <- test_orig[, colSums(is.na(test_orig)) == 0] 
+
+train_clean <- train_orig[,-c(1:8)]
+test_clean <- test_orig[,-c(1:8)]
+
+```  
+
+
+## Model building
+
+
+We will need to split the training set to train and cross validation data sets in order to perform cross validation. We will split the data 80-20.
+
+```{r, cache = T}
+set.seed(888)
+cv_flag <- createDataPartition(train_clean$classe, p=0.80, list=F)
+train_split <- train_clean [cv_flag, ]
+cv_split <- train_clean[-cv_flag, ]
+
+```  
+
+
+Now that we've split the data, we can train the model. We're using 10-fold cross validation to train a random forest model, and we've allowed parallel processing to speed up the process. [Note to anyone wanting to run the code: this takes a while to run]. After training the model, We'll generate a confusion matrix of itws performance against the "test split", and estimate its accuracy and out of sample error.
+
+```{r, cache = T}
+
+Mod1<-trainControl(method="cv", number=10, allowParallel=T, verbose=F)
+
+rf_model<-train(classe~.,data=train_split, method="rf", trControl=Mod1, verbose=F)
+
+pred_rfm<-predict(rf_model, cv_split)
+
+confusionMatrix(cv_split$classe, pred_rfm)
+
+accuracy <- postResample(pred_rfm, cv_split$classe)
+accuracy
+
+
+out_of_sample_error <- 1 - as.numeric(confusionMatrix(cv_split$classe, pred_rfm)$overall[1])
+out_of_sample_error
+
+
+```  
+
+The acurracy for the model is 0.994, with a Kappa of 0.993. The out-of-sample-error for the model is approximately 0.006.
+
+
+
+
+Now that we have trained a satisfactory model, we can use our trained model to predict the original 20 test cases.
+
+```{r, cache = T}
+
+predict_test_cases <- predict(rf_model, test_clean[, -length(names(test_clean))])
+predict_test_cases
+
+```  
+
+## Appendix: Tree plot figure
+
+Here we can illustrate the decision tree using rpart.plot
+
+
+```{r}
+fancy_model <- rpart(classe ~., data=train_clean, method="class")
+fancyRpartPlot(fancy_model, digits=1)
+```
+
